@@ -1,0 +1,824 @@
+Descriptor:
+  Name: DefenderEndpointInvestigationBasePlugin
+  DisplayName:  Defender Endpoint Investigation Base Plugin
+  Description:  A collection of core skills for Incident Response to investigate suspicious Windows device, powered by Defender XDR, developed by Bi Yue Xu.
+  Version: 1.0.3
+
+SkillGroups:
+  - Format: KQL
+    Skills:
+      - Name: IBase1001ListPast15DayFilesDownloadedFromInternet
+        DisplayName: File - Last 15 Days Files Downloaded From Internet
+        Description: Lists files downloaded from Internet to this device in the last 15 days. The skill code is IBase1001.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view file download activities.
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceFileEvents
+           | where DeviceName contains '{{devicename}}'
+           | where Timestamp > ago(15d)
+           | where isnotempty(FileOriginUrl) and ActionType == "FileCreated"
+           | project Timestamp, DeviceName, ActionType, FileName, FileHash=SHA256, FolderPath, FileOriginUrl, FileOriginIP, InitiatingProcessFileName, InitiatingProcessAccountName, InitiatingProcessSHA256, InitiatingProcessCommandLine, InitiatingProcessParentFileName
+           | sort by Timestamp desc    
+
+      - Name: IBase1002ListFilesDownloadedFromInternet
+        DisplayName: File - Files Downloaded From Internet
+        Description: Lists files downloaded from Internet to this device in specific timeframe, in past 30 days. The skill code is IBase1002.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view file download activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceFileEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where isnotempty(FileOriginUrl) and ActionType == "FileCreated"
+           | project Timestamp, DeviceName, ActionType, FileName, FileHash=SHA256, FolderPath, FileOriginUrl, FileOriginIP, InitiatingProcessFileName, InitiatingProcessAccountName, InitiatingProcessSHA256, InitiatingProcessCommandLine, InitiatingProcessParentFileName
+           | sort by Timestamp desc   
+
+      - Name: IBase1003SensitiveFilesEvents
+        DisplayName: File - Sensitive Files Events
+        Description: Lists sensitive files events on this device in the last 30 days. The skill code is IBase1003.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view sensitive file activities.
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceFileEvents
+           | where DeviceName contains '{{devicename}}'
+           | where Timestamp > ago(30d)
+           | where isnotempty(SensitivityLabel) and SHA256 !startswith "00000000"
+           | summarize by DeviceName, FileName, FolderPath, SensitivityLabel, SensitivitySubLabel, SHA256, InitiatingProcessAccountName
+           | sort by SensitivityLabel asc, FileName asc
+
+      - Name: IBase1004ListFilesDownloadedByUser
+        DisplayName: File - Files Downloaded by User
+        Description: Lists files downloaded by user in specific timeframe, in past 30 days.  The skill code is IBase1004.
+        Inputs:
+          - Name: username
+            Description: Provide user account display name to view file download activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           CloudAppEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where AccountDisplayName contains '{{username}}'
+           | where ActionType == "FileDownloaded"
+           | extend EventData = parse_json(RawEventData)
+           | extend UserId = tostring(EventData.UserId), IsManagedDevice = tobool(EventData.IsManagedDevice), SourceFileName = tostring(EventData.SourceFileName), SiteUrl = tostring(EventData.SiteUrl)
+           | project Timestamp, ActionType, Application, AccountDisplayName, UserId, FileName= SourceFileName, SiteUrl, ObjectId, DeviceType, OSPlatform, IsManagedDevice 
+           | sort by Timestamp asc 
+
+      - Name: IBase1005ListFilesUploadedToCloud
+        DisplayName: File - Files Uploaded to Cloud
+        Description: Lists files uploaded to external cloud sites in specific timeframe, in past 30 days.  The skill code is IBase1005.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           CloudAppEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where ActionType == "FileUploadedToCloud" 
+           | extend EventData = parse_json(RawEventData)
+           | extend User = tostring(EventData.UserId), App = tostring(EventData.Application), Operation = tostring(EventData.Operation), TargetDomain = tostring(EventData.TargetDomain), TargetUrl = tostring(EventData.TargetUrl), FilePath = tostring(EventData.ObjectId), FileName = tostring(split(EventData.ObjectId, "\\")[-1]), FileSha256 = tostring(EventData.Sha256), DeviceName = tostring(EventData.DeviceName)
+           | where DeviceName contains '{{devicename}}'
+           | project Timestamp, DeviceName, User, App, Operation, TargetDomain, TargetUrl, FileName, FileSha256, FilePath
+
+      - Name: IBase1006ListPast15DayFilesDownloaded
+        DisplayName: File - Last 15 Days Files Downloaded
+        Description: Lists files downloaded to this device in the last 15 days.  The skill code is IBase1006.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view file download activities.
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceFileEvents
+            | where DeviceName contains '{{devicename}}'
+            | where Timestamp > ago(15d)
+            | where isnotempty(FileOriginUrl) and ActionType == "FileCreated"
+            | project Timestamp, DeviceName, ActionType, FileName, FolderPath, FileOriginUrl, InitiatingProcessFileName, InitiatingProcessAccountName, InitiatingProcessCommandLine
+            | sort by Timestamp desc 
+ 
+      - Name: IBase1007ListFilesDownloaded
+        DisplayName: File - Files Downloaded
+        Description: Lists files downloaded to this device in specific timeframe, in past 30 days. The skill code is IBase1007.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view file download activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceFileEvents
+            | extend StartTime = datetime('{{starttime}}')
+            | extend EndTime = datetime('{{endtime}}')
+            | where Timestamp between (StartTime .. EndTime)
+            | where DeviceName contains '{{devicename}}'
+            | where isnotempty(FileOriginUrl) and ActionType == "FileCreated"
+            | project Timestamp, DeviceName, ActionType, FileName, FolderPath, FileOriginUrl, InitiatingProcessFileName, InitiatingProcessAccountName, InitiatingProcessCommandLine
+            | sort by Timestamp desc 
+
+      - Name: IBase1008FileInDeviceEvents
+        DisplayName: File - Any Device Events Related To This File
+        Description: Display device events that include the filename, in specific timeframe. The skill code is IBase1008.
+        Inputs:
+          - Name: filename
+            Description: Provide the file name you want to search, e.g. DomainDominance198
+            Required: true            
+          - Name: starttime
+            Description: Provide a start time in UTC e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time in UTC e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+            union DeviceProcessEvents, DeviceFileEvents, DeviceNetworkEvents, DeviceRegistryEvents, DeviceEvents, DeviceLogonEvents, DeviceImageLoadEvents
+            | extend StartTime = datetime('{{starttime}}')
+            | extend EndTime = datetime('{{endtime}}')
+            | where Timestamp between (StartTime .. EndTime)
+            | search '{{filename}}'
+
+      - Name: IBase1009FileOrigin
+        DisplayName: File - File Origin
+        Description: Display the origin or source of the file, in past 30 days. The skill code is IBase1009.
+        Inputs:
+          - Name: filename
+            Description: Provide the file name, e.g. DomainDominance198.ps1
+            Required: true                       
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceFileEvents
+            | where FileName contains '{{filename}}'
+            | where Timestamp > ago(30d)
+            | project Timestamp, DeviceName, FileName, FileOriginUrl, FileOriginReferrerUrl
+            | sort by Timestamp desc
+
+      - Name: IBase1010ListFileEvents
+        DisplayName: File - Detailed File Events
+        Description: Lists detailed files events seen on a device in specific timeframe, in past 30 days. The skill code is IBase1010.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view file download activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceFileEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where ActionType !contains "aggregate"
+           | project Timestamp, DeviceName, ActionType, FileName, FileHash=SHA256, FolderPath, FileOriginUrl, FileOriginIP, InitiatingProcessFileName, InitiatingProcessAccountName, InitiatingProcessSHA256, InitiatingProcessCommandLine, InitiatingProcessParentFileName
+           | sort by Timestamp desc
+
+      - Name: IBase2001ProcessExecutionSummary
+        DisplayName: Process - Process Executions Summary
+        Description: Summary of process executions on this device in specific timeframe, in past 30 days. The skill code is IBase2001.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view process execution activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceProcessEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where ActionType == "ProcessCreated"
+           | extend ProcessName = FileName, ProcessPath = FolderPath, ProcessSHA256 = SHA256
+           | summarize Count = count() by DeviceName, ActionType, ProcessName, ProcessPath, ProcessSHA256, InitiatingProcessFileName, InitiatingProcessSHA256, InitiatingProcessAccountName, InitiatingProcessParentFileName
+           | sort by ProcessName asc 
+
+      - Name: IBase2002ProcessExecutionDetails
+        DisplayName: Process - Detailed Process Executions
+        Description: Detailed process execution events within a brief period, e.g. an hour. The skill code is IBase2002.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view process execution activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceProcessEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where ActionType == "ProcessCreated"
+           | extend ProcessName = FileName, ProcessPath = FolderPath, ProcessSHA256 = SHA256
+           | project Timestamp, DeviceName, ProcessName, ProcessPath, ProcessSHA256, ProcessCommandLine, InitiatingProcessFileName, InitiatingProcessSHA256, InitiatingProcessAccountName, InitiatingProcessParentFileName
+           | sort by Timestamp desc 
+            
+      - Name: IBase3001DeviceASRRules
+        DisplayName: Suspicious Activities - ASR Rules Triggered
+        Description: ASR rules that were triggered on this device in the past 7 days.
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view ASR rules. The skill code is IBase3001. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | where Timestamp > ago(7d)
+            | where ActionType startswith "Asr"
+            | where DeviceName contains '{{devicename}}'
+            | summarize ASR_Rule_Count = count() by ActionType
+
+      - Name: IBase3002DeviceAMSIEvents
+        DisplayName: Suspicious Activities - ASMSI Script Detection
+        Description: Script detection events from the Windows Antimalware Scan Interface (AMSI) in past 7 days. The skill code is IBase3002. 
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view AMSI events. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | where ActionType == "AmsiScriptDetection"
+            | where Timestamp > ago(7d)
+            | where DeviceName contains '{{devicename}}'
+            | project Timestamp, InitiatingProcessFileName, SHA256, InitiatingProcessCommandLine, InitiatingProcessFolderPath, InitiatingProcessAccountName
+            | sort by Timestamp desc 
+ 
+      - Name: IBase3003DeviceExploitGuard
+        DisplayName: Suspicious Activities - Exploit Guard Events
+        Description: Exploit Guard events detected on this device in past 7 days. The skill code is IBase3003. 
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view Exploit Guard events. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | where ActionType startswith 'ExploitGuard' and ActionType !contains 'NetworkProtection'
+            | where Timestamp > ago(7d)
+            | where DeviceName contains '{{devicename}}'
+            | project Timestamp, ActionType, InitiatingProcessFileName, InitiatingProcessSHA256, InitiatingProcessCommandLine, InitiatingProcessFolderPath, InitiatingProcessAccountName           
+            | sort by Timestamp desc 
+ 
+      - Name: IBase3004DeviceNetworkProtection
+        DisplayName: Suspicious Activities - Network Protection Events
+        Description: Network Protection events triggered on this device in the past 7 days. The skill code is IBase3004. 
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view Network Protection events. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | where Timestamp > ago(7d)
+            | where ActionType contains "ExploitGuardNetworkProtection"
+            | where DeviceName contains '{{devicename}}'
+            | project Timestamp, ActionType, InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessAccountName, RemoteUrl
+
+      - Name: IBase3005DeviceTamperingAttempt
+        DisplayName: Suspicious Activities - Device Tampering Attempts
+        Description: Possible tampering attempts on this device in the past 7 days. The skill code is IBase3005.
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view possible tampering attempt events. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | where Timestamp > ago(7d)
+            | where DeviceName contains '{{devicename}}'
+            | where ActionType == "TamperingAttempt"
+            | sort by Timestamp desc 
+
+      - Name: IBase4001RDPConnectionToThisDevice
+        DisplayName: Lateral Movement - RDP To Device
+        Description: Inbound RDP connection to this device in a specific timeframe. The skill code is IBase4001.
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view RDP events. 
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true              
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | extend StartTime = datetime('{{starttime}}')
+            | extend EndTime = datetime('{{endtime}}')
+            | where Timestamp between (StartTime .. EndTime)
+            | where ActionType == "RemoteDesktopConnection"            
+            | where DeviceName contains '{{devicename}}'
+            | extend SourceIP = LocalIP
+            | extend InternalPrivateIP = ipv4_is_private(SourceIP)
+            | project Timestamp, ActionType, DeviceName, SourceIP, InternalPrivateIP
+            | sort by Timestamp desc 
+
+      - Name: IBase4002RDPConnectionToThisDevice-Last10Days
+        DisplayName: Lateral Movement - Last 10 Days RDP To Device
+        Description: Inbound RDP connection to this device in past 10 days. The skill code is IBase4002.
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view RDP events. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | where ActionType == "RemoteDesktopConnection"
+            | where Timestamp > ago(10d)
+            | where DeviceName contains '{{devicename}}'
+            | extend SourceIP = LocalIP
+            | extend InternalPrivateIP = ipv4_is_private(SourceIP)
+            | project Timestamp, ActionType, DeviceName, SourceIP, InternalPrivateIP
+            | sort by Timestamp desc 
+            
+      - Name: IBase4003LogonToDevice
+        DisplayName: Lateral Movement - Logons To Device In Last 10 Days
+        Description: Logon events from other devices to this device in the last 10 days. The skill code is IBase4003.
+        Inputs:
+          - Name: devicename
+            Description: Please provide the device name, e.g. vnevado-win10b, to view logon events to this device. 
+            Required: true
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceLogonEvents
+            | where Timestamp > ago(10d)
+            | where DeviceName contains '{{devicename}}'
+            | extend DestinationDevice = DeviceName, SourceDevice = RemoteDeviceName, SourceIP = RemoteIP, SourceIPType = RemoteIPType
+            | project Timestamp, SourceDevice, SourceIP, SourceIPType, DestinationDevice, ActionType, LogonType, AccountName, Protocol, IsLocalAdmin
+            | sort by Timestamp desc 
+
+      - Name: IBase4004LogonToDeviceWithTimeRange
+        DisplayName: Lateral Movement - Logon To Device
+        Description: Logon events from other devices to this device in a specific timeframe, in the past 30 days. The skill code is IBase4004.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view logon events to this device.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true          
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceLogonEvents
+            | extend StartTime = datetime('{{starttime}}')
+            | extend EndTime = datetime('{{endtime}}')
+            | where Timestamp between (StartTime .. EndTime)
+            | where DeviceName contains '{{devicename}}'
+            | extend DestinationDevice = DeviceName, SourceDevice = RemoteDeviceName, SourceIP = RemoteIP, SourceIPType = RemoteIPType
+            | project Timestamp, SourceDevice, SourceIP, SourceIPType, DestinationDevice, ActionType, LogonType, AccountName, Protocol, IsLocalAdmin
+            | sort by Timestamp desc 
+
+      - Name: IBase5001DeviceOutboundNetworkEvents
+        DisplayName: Network - Outbound Network Events
+        Description: Device outbound network events, including attempts and failed connections, in a specific timeframe, in the past 30 days. The skill code is IBase5001.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view outbound network events.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceNetworkEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where RemoteIPType == "Public"
+           | where ActionType has_any ("ConnectionSuccess", "ConnectionAttempt", "ConnectionFailed", "ConnectionRequest")
+           | summarize NetworkConnectionCount = count() by DeviceName, InitiatingProcessFileName, InitiatingProcessAccountName,InitiatingProcessSHA256, InitiatingProcessFolderPath, InitiatingProcessParentFileName, RemoteIP, RemoteUrl, RemotePort, Protocol
+
+      - Name: IBase5002DeviceInboundNetworkEvents
+        DisplayName: Network - Inbound Network Events
+        Description: Device inbound network events and attempts in a specific timeframe, in the past 30 days. The skill code is IBase5002.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view inbound network events.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceNetworkEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where ActionType has_any ("InboundConnectionAccepted", "InboundConnectionAcknowledged", "InboundConnectionAttempt")
+           | summarize count() by ActionType, RemoteIP, RemotePort, LocalIP, LocalPort, Protocol          
+  
+      - Name: IBase5003DevicelisteningPorts
+        DisplayName: Network - Device Listening Ports
+        Description: Displays device listening ports in specific timeframe, in the past 30 days. The skill code is IBase5003.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceNetworkEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where ActionType == "ListeningConnectionCreated"
+           | where LocalPort < 49151
+           | project Timestamp, DeviceName, ActionType, InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessAccountName, InitiatingProcessFolderPath, InitiatingProcessSHA256, InitiatingProcessParentFileName, LocalPort, Protocol
+           | sort by Timestamp asc, LocalPort asc 
+
+      - Name: IBase6001DeviceScheduledTask
+        DisplayName: Device Events - Scheduled Task Events
+        Description: Scheduled task events seen on a device in a specific timeframe, in the last 30 days. The skill code is IBase6001.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view scheduled tasks events.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | where ActionType has_any ("ScheduledTaskCreated", "ScheduledTaskDeleted", "ScheduledTaskUpdated")
+           | project Timestamp, ActionType, InitiatingProcessAccountName, AdditionalFields, IsInitiatingProcessRemoteSession, IsProcessRemoteSession
+           | sort by Timestamp desc 
+
+      - Name: IBase6002DeviceUserAccount
+        DisplayName: Device Events - User Account Events
+        Description: User account events seen on a device in a specific timeframe, in the last 30 days. The skill code is IBase6002.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view user account events.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | extend StartTime = datetime('{{starttime}}')
+            | extend EndTime = datetime('{{endtime}}')
+            | where Timestamp between (StartTime .. EndTime)
+            | where DeviceName contains '{{devicename}}'
+            | where ActionType has_any ("UserAccountCreated", "UserAccountDeleted", "UserAccountModified")
+            | project Timestamp, ActionType, AccountName, AccountDomain, InitiatingProcessAccountName, AdditionalFields, IsInitiatingProcessRemoteSession, IsProcessRemoteSession
+            | sort by Timestamp desc 
+
+      - Name: IBase6003DeviceUserAccountAddedOrRemovedFromLocalGroup
+        DisplayName: Device Events - User Account Added Or Removed From Local Group
+        Description: User account added or removed from local group on a device in a specific timeframe, in the last 30 days. The skill code is IBase6003.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view user account events.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+            DeviceEvents
+            | extend StartTime = datetime('{{starttime}}')
+            | extend EndTime = datetime('{{endtime}}')
+            | where Timestamp between (StartTime .. EndTime)
+            | where DeviceName contains '{{devicename}}'
+            | where ActionType has_any ("UserAccountAddedToLocalGroup", "UserAccountRemovedFromLocalGroup")
+            | extend GroupInfo = parse_json(AdditionalFields)
+            | extend GroupName = GroupInfo.GroupName, GroupDomainName= GroupInfo.GroupDomainName
+            | project Timestamp, ActionType, AccountSid, GroupName, GroupDomainName, InitiatingProcessAccountName, InitiatingProcessAccountDomain
+            | sort by Timestamp desc 
+
+      - Name: IBase7001ListRegistryEvents
+        DisplayName: Registry - All Registry Events
+        Description: Lists registry events on this device in specific timeframe, in past 30 days. The skill code is IBase7001.
+        Inputs:
+          - Name: devicename
+            Description: Provide the device name, e.g. vnevado-win10b, to view file download activities.
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           DeviceRegistryEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where DeviceName contains '{{devicename}}'
+           | project Timestamp, DeviceName, ActionType, RegistryKey, RegistryValueName, RegistryValueData, InitiatingProcessFileName, InitiatingProcessFolderPath, InitiatingProcessSHA256, InitiatingProcessParentFileName, InitiatingProcessAccountName, InitiatingProcessCommandLine
+           | sort by Timestamp asc 
+
+      - Name: IBase8001UserEmailCountWithLinkOrAttachment
+        DisplayName: Email - Count of User Email with Link or Attachment
+        Description: Number of emails user received containing link or attachment in specific timeframe, in past 30 days. The skill code is IBase8001.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           EmailEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where RecipientEmailAddress contains '{{username}}'
+           | where AttachmentCount > 0 or UrlCount > 0
+           | summarize by NetworkMessageId
+           | count 
+
+      - Name: IBase8002UserEmailWithLinks
+        DisplayName: Email - User Email with Links
+        Description: Lists emails user received containing links in specific timeframe, in past 30 days. The skill code is IBase8002.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           EmailEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where RecipientEmailAddress contains '{{username}}'
+           | where UrlCount > 0
+           | join kind=inner EmailUrlInfo on NetworkMessageId
+           | project Timestamp, NetworkMessageId, SenderFromAddress, SenderMailFromAddress, RecipientEmailAddress, Subject, UrlCount, AttachmentCount, EmailDirection, DeliveryAction, DeliveryLocation, Url, UrlLocation
+           | sort by NetworkMessageId asc, Timestamp asc 
+
+      - Name: IBase8003UserEmailWithAttachments
+        DisplayName: Email - User Email with Attachments
+        Description: Lists emails user received containing attachments in specific timeframe, in past 30 days. The skill code is IBase8003.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           EmailEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where RecipientEmailAddress contains '{{username}}'
+           | where AttachmentCount > 0
+           | join kind=inner EmailAttachmentInfo on NetworkMessageId
+           | project Timestamp, NetworkMessageId, SenderFromAddress, SenderMailFromAddress, RecipientEmailAddress, Subject, UrlCount, AttachmentCount, EmailDirection, DeliveryAction, DeliveryLocation, FileName, FileType, SHA256
+           | sort by NetworkMessageId asc, Timestamp asc 
+
+      - Name: IBase8004UserUrlClickEvents
+        DisplayName: Email - User Url Click Events in Email and Teams
+        Description: Displays user Url click events in Email and Teams in specific timeframe, in the past 30 days. The skill code is IBase8004.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           UrlClickEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where AccountUpn contains '{{username}}'
+           | where ActionType == "ClickAllowed" and IsClickedThrough != "0"
+           | project Timestamp, Workload, AppName, AccountUpn, Url, ActionType, IsClickedThrough
+           | sort by Timestamp asc 
+
+      - Name: IBase8005UserOutboundEmailCount
+        DisplayName: Email - User Outbound Email Count
+        Description: Lists number of emails user sent to each external recipient in specific timeframe, in past 30 days. The skill code is IBase8005.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           EmailEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where SenderFromAddress contains '{{username}}'
+           | where EmailDirection == "Outbound"
+           | summarize OutboundEmailCount = count() by SenderFromAddress, RecipientEmailAddress     
+
+      - Name: IBase8006UserOutboundEmailwithAttachmentCount
+        DisplayName: Email - User Outbound Email with Attachment Count
+        Description: Lists number of emails with attachment user sent to each external recipient in specific timeframe, in past 30 days. The skill code is IBase8006.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00 
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           EmailEvents
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where SenderFromAddress contains '{{username}}'
+           | where EmailDirection == "Outbound"
+           | where AttachmentCount > 0
+           | summarize OutboundEmailCount = count() by SenderFromAddress, RecipientEmailAddress
+           | sort by OutboundEmailCount
+
+      - Name: IBase8007UserOutboundEmailwithAttachmentDetails
+        DisplayName: Email - User Outbound Email with Attachment Details
+        Description: Lists user outbound emails with attachment detail in specific timeframe, in past 30 days. The skill code is IBase8007.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. JoeSmith or JoeSmith@mycompany.com
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           EmailAttachmentInfo
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between (StartTime .. EndTime)
+           | where SenderFromAddress contains '{{username}}'
+           | project Timestamp, SenderDisplayName, SenderFromAddress, RecipientEmailAddress, FileName, FileType, SHA256, FileSize
+           | sort by Timestamp asc
+
+      - Name: IBase9001ListUserInfo
+        DisplayName: User - User Information
+        Description: Lists user information in specific timeframe, in past 30 days. The skill code is IBase9001.
+        Inputs:
+          - Name: username
+            Description: Provide user account name e.g. Joe Smith
+            Required: true
+          - Name: starttime
+            Description: Provide a start time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true  
+          - Name: endtime
+            Description: Provide an end time e.g. Oct 3, 2024 18:00 or 2024-10-03 18:00
+            Required: true            
+        Settings:
+          Target: Defender
+          Template: |-
+           IdentityInfo
+           | extend StartTime = datetime('{{starttime}}')
+           | extend EndTime = datetime('{{endtime}}')
+           | where Timestamp between ((StartTime - 3d) .. EndTime)
+           | where AccountName contains '{{username}}'
+           | project Timestamp, AccountName, GivenName, Surname, AccountUpn, AccountDomain, Department, JobTitle, EmailAddress, Country, RiskLevel, RiskLevelDetails, RiskStatus, PrivilegedEntraPimRoles
+           | sort by AccountName asc, Timestamp desc
+           | top 1  by Timestamp desc
